@@ -21,7 +21,7 @@ impl FlagsRegister {
     }
 
     pub fn get(&self) -> u8 {
-        return if self.carry {0x01u8} else {0u8} |
+        0x00 | if self.carry {0x01u8} else {0u8} |
         if self.zero {0x02u8} else {0u8} |
         if self.interrupt_disable {0x04u8} else {0u8} |
                                 0x20u8 |

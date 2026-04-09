@@ -18,6 +18,7 @@ pub enum CPUState {
     PendingWrite{address: u16, value: u8},
     PendingModify{address: u16, original: u8, value: u8},
     Jumping{address: u16, penalty: bool},
+    Oops,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug)]

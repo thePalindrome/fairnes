@@ -33,7 +33,7 @@ pub fn execute_instruction(instruction: Instruction, cpu: &mut CPU) {
         "INC" => {let result = instruction.value.wrapping_add(1); cpu.state = CPUState::PendingModify{ address: instruction.address, original: instruction.value, value: result}; update_zero_and_negative(result, cpu) }
         "INX" => {cpu.x = cpu.x.wrapping_add(1); update_zero_and_negative(cpu.x, cpu)},
         "INY" => {cpu.y = cpu.y.wrapping_add(1); update_zero_and_negative(cpu.y, cpu)},
-        "JMP" => {cpu.state = CPUState::Jumping {address: ((instruction.value as u16) << 8) + cpu.lo as u16, penalty: instruction.mode == AddressingMode::Absolute}},
+        "JMP" => {cpu.pc = instruction.address},
         "JSR" => {cpu.state = CPUState::Pushing16 { value: cpu.pc.wrapping_sub(1)}}
         "LDA" => {cpu.a = instruction.value; update_zero_and_negative(cpu.a, cpu)}
         "LDX" => {cpu.x = instruction.value; update_zero_and_negative(cpu.x, cpu)}
@@ -69,6 +69,10 @@ pub fn execute_instruction(instruction: Instruction, cpu: &mut CPU) {
 fn build_address(instruction: Instruction, cpu: &mut CPU) -> u16 {
     if instruction.mode == AddressingMode::Absolute {
         ((instruction.value as u16) << 8) + cpu.lo as u16
+    } else if instruction.mode == AddressingMode::AbsoluteX  || instruction.mode == AddressingMode::AbsoluteY
+        || instruction.mode == AddressingMode::ZeroPageX || instruction.mode == AddressingMode::ZeroPageY
+        || instruction.mode == AddressingMode::XIndirect || instruction.mode == AddressingMode::IndirectY {
+        instruction.address
     } else {
         instruction.value as u16
     }

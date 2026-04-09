@@ -88,6 +88,9 @@ impl Emulator {
     fn cpu_cycle(&mut self) {
         if self.cpu.state != Halted {
             match self.cpu.state {
+                CPUState::Oops => {
+                    self.cpu.state = CPUState::Ready; // For burning a cycle during the indexed things
+                }
                 CPUState::NeedInstruction => {
                     self.cpu.instruction = parse_instruction(self.mem_read(self.cpu.pc));
                     if self.cpu.instruction.mode != AddressingMode::Implied {
@@ -112,7 +115,28 @@ impl Emulator {
                                 self.cpu.state = CPUState::Ready;
                             } else {
                                 self.cpu.state = CPUState::PendingRead { address: address as u16 };
-                            }},
+                            }
+                        },
+                        AddressingMode::ZeroPageX => {
+                            let address = self.mem_read(self.cpu.pc).wrapping_add(self.cpu.x);
+                            self.cpu.instruction.address = address as u16;
+                            if self.cpu.instruction.does_write {
+                                self.cpu.instruction.value = address;
+                                self.cpu.state = CPUState::Ready;
+                            } else {
+                                self.cpu.state = CPUState::PendingRead { address: address as u16 };
+                            }
+                        },
+                        AddressingMode::ZeroPageY => {
+                            let address = self.mem_read(self.cpu.pc).wrapping_add(self.cpu.y);
+                            self.cpu.instruction.address = address as u16;
+                            if self.cpu.instruction.does_write {
+                                self.cpu.instruction.value = address;
+                                self.cpu.state = CPUState::Ready;
+                            } else {
+                                self.cpu.state = CPUState::PendingRead { address: address as u16 };
+                            }
+                        },
                         AddressingMode::Absolute => {
                             if self.cpu.lo_set {
                                 self.cpu.instruction.value = self.mem_read(self.cpu.pc);
@@ -129,7 +153,70 @@ impl Emulator {
                                 self.cpu.lo_set = true;
                             }
                         }
-                        _ => {}
+                        AddressingMode::AbsoluteX => {
+                            if self.cpu.lo_set {
+                                self.cpu.instruction.value = self.mem_read(self.cpu.pc);
+                                let full_address = ((self.cpu.instruction.value as u16) << 8) + self.cpu.lo as u16 + self.cpu.x as u16;
+                                self.cpu.instruction.address = full_address;
+                                let (_, oops) = self.cpu.x.overflowing_add(self.cpu.lo);
+                                if oops {
+                                    self.cpu.state = CPUState::Oops; // TODO: This won't work if there's also a PendingRead requirement
+                                } else {
+                                    if self.cpu.instruction.does_write {
+                                        self.cpu.state = CPUState::Ready;
+                                    } else {
+                                        self.cpu.state = CPUState::PendingRead { address: full_address};
+                                    }
+                                }
+                                self.cpu.lo_set = false;
+                            } else {
+                                self.cpu.lo = self.mem_read(self.cpu.pc);
+                                self.cpu.lo_set = true;
+                            }
+                        }
+                        AddressingMode::AbsoluteY => {
+                            if self.cpu.lo_set {
+                                self.cpu.instruction.value = self.mem_read(self.cpu.pc);
+                                let full_address = ((self.cpu.instruction.value as u16) << 8) + self.cpu.lo as u16 + self.cpu.y as u16;
+                                self.cpu.instruction.address = full_address;
+                                let (_, oops) = self.cpu.y.overflowing_add(self.cpu.lo);
+                                if oops {
+                                    self.cpu.state = CPUState::Oops; // TODO: This won't work if there's also a PendingRead requirement
+                                } else {
+                                    if self.cpu.instruction.does_write {
+                                        self.cpu.state = CPUState::Ready;
+                                    } else {
+                                        self.cpu.state = CPUState::PendingRead { address: full_address};
+                                    }
+                                }
+                                self.cpu.lo_set = false;
+                            } else {
+                                self.cpu.lo = self.mem_read(self.cpu.pc);
+                                self.cpu.lo_set = true;
+                            }
+                        },
+                        AddressingMode::Indirect => {
+                            if self.cpu.lo_set {
+                                self.cpu.instruction.value = self.mem_read(self.cpu.pc);
+                                let full_address = ((self.cpu.instruction.value as u16) << 8) + self.cpu.lo as u16;
+                                self.cpu.instruction.address = (self.mem_read(full_address) as u16) + ((self.mem_read(full_address+1) as u16) << 8); // TODO: Check for edge cases regarding 'having the answer early'
+                                // TODO: Add penalty for boundary crossing... and for wrapping the page
+                                self.cpu.state = CPUState::PendingRead { address: full_address};
+                                self.cpu.lo_set = false;
+                            } else {
+                                self.cpu.lo = self.mem_read(self.cpu.pc);
+                                self.cpu.lo_set = true;
+                            }
+                        },
+                        AddressingMode::IndirectY => {
+                            self.cpu.instruction.value = self.mem_read(self.cpu.pc);
+                            self.cpu.state = CPUState::PendingRead16 { address: self.cpu.instruction.value as u16 };
+                        }
+                        AddressingMode::XIndirect => {
+                            let addr = self.mem_read(self.cpu.pc).wrapping_add(self.cpu.x);
+                            self.cpu.state = CPUState::PendingRead16 { address: addr as u16 };
+                        },
+                        AddressingMode::Implied => unreachable!("CPU State set to NeedOperand while Implied addressing mode was active!")
                     }
                     self.cpu.pc = self.cpu.pc.wrapping_add(1);
                     if self.cpu.state == CPUState::Ready {
@@ -143,7 +230,8 @@ impl Emulator {
 
                 CPUState::PendingRead{ address } => {
                     match self.cpu.instruction.mode {
-                        AddressingMode::ZeroPage | AddressingMode::Absolute | AddressingMode::Implied => {
+                        AddressingMode::ZeroPage | AddressingMode::Absolute | AddressingMode::Implied |
+                        AddressingMode::ZeroPageX | AddressingMode::ZeroPageY | AddressingMode::AbsoluteX | AddressingMode::AbsoluteY => {
                             self.cpu.instruction.value = self.mem_read(address);
                             self.cpu.state = CPUState::Ready;
 
@@ -157,6 +245,21 @@ impl Emulator {
                                 self.cpu.state = CPUState::Jumping {address: ((self.cpu.instruction.value as u16) << 8) + self.cpu.lo as u16, penalty: true};
                             }
                         },
+
+                        AddressingMode::IndirectY => {
+                            self.cpu.instruction.value = self.mem_read(address);
+                            self.cpu.instruction.address = (((self.cpu.instruction.value as u16) << 8) + self.cpu.lo as u16) + self.cpu.y as u16;
+                            let (_, oops) = self.cpu.y.overflowing_add(self.cpu.lo);
+                            self.cpu.state = if oops {CPUState::Oops} else {CPUState::Ready};
+                        },
+
+                        AddressingMode::XIndirect => {
+                            self.cpu.instruction.value = self.mem_read(address);
+                            self.cpu.instruction.address = ((self.cpu.instruction.value as u16) << 8) + self.cpu.lo as u16;
+                            self.cpu.state = CPUState::Oops; // (d,x) seems to always take the oops hit
+                        }
+
+                        AddressingMode::Indirect => {self.cpu.state = CPUState::Ready} // We pre-calculated a few cycles earlier
 
 
                         _ => {},
@@ -225,9 +328,9 @@ impl Emulator {
                     self.cpu.sp = self.cpu.sp.wrapping_add(1);
                     self.cpu.lo = self.mem_read(self.cpu.sp as u16 + 0x100u16);
                     self.cpu.state = CPUState::Pulling;
-                }
+                },
 
-                _ => {}
+                CPUState::Halted => { } // Nothing to do here, really
             }
             // Read instruction
             // Or read operand
