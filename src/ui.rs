@@ -1,3 +1,5 @@
+use eframe::{Frame};
+use egui::{Context, TextureOptions, Vec2};
 use crate::cpu::cpu::CPUState;
 use crate::emulator::Emulator;
 
@@ -17,6 +19,9 @@ pub struct UiApp {
     tracelogger_text: String,
 
     tracelogger_view: bool,
+    pattern_table_view: bool,
+
+    pattern_table: Vec<u8>
 }
 
 impl Default for UiApp {
@@ -27,6 +32,8 @@ impl Default for UiApp {
             memory_inspect_value: String::default(),
             tracelogger_text: String::default(),
             tracelogger_view: false,
+            pattern_table_view: false,
+            pattern_table: Vec::with_capacity(256*128*3),
         }
     }
 }
@@ -43,6 +50,28 @@ impl UiApp {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
         } else {
             Default::default()
+        }
+    }
+
+    fn load_pattern_table(&mut self) {
+        self.pattern_table = vec![0; 256*128*3];
+        for table in 0..2 {
+            for row in 0..16 {
+                for column in 0..16 {
+                    for y in 0..8 {
+                        let low_byte = self.emulator.chrdata[y + column*16 + row*256 + table*4096];
+                        let high_byte = self.emulator.chrdata[8 + y + column*16 + row*256 + table*4096];
+                        for x in 0..8 {
+                            let mut two_bit = if ((low_byte >> (7 - x)) & 1) == 1 { 1 } else { 0 };
+                            two_bit += if ((high_byte >> (7 - x)) & 1) == 1 { 1 } else { 0 };
+
+                            self.pattern_table[(x + column*8 + table*128)*3 + (768 * (y + row*8))] = two_bit * 85;
+                            self.pattern_table[(x + column*8 + table*128)*3 + 1 + (768 * (y + row*8))] = two_bit * 85;
+                            self.pattern_table[(x + column*8 + table*128)*3 + 2 + (768 * (y + row*8))] = two_bit * 85;
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -118,6 +147,7 @@ impl eframe::App for UiApp {
                 if ui.button("Load 7_Graphics.nes").clicked() {
                     let bytes = include_bytes!("../__PatreonRoms/7_Graphics.nes");
                     self.emulator.load_cartridge(bytes.to_vec());
+                    self.load_pattern_table()
                 }
             });
 
@@ -149,9 +179,16 @@ impl eframe::App for UiApp {
             ui.label(&self.emulator.last_text);
 
             ui.checkbox(&mut self.tracelogger_view, "View Tracelogger");
+            ui.checkbox(&mut self.pattern_table_view, "View Pattern Tables");
 
             ui.separator();
 
+            if self.pattern_table_view {
+                let texture = egui::ColorImage::from_rgb([256,128], self.pattern_table.as_slice());
+                let handle = ui.ctx().load_texture("pattern_table", texture, TextureOptions::default());
+                let sized_texture = egui::load::SizedTexture::new(handle.id(), Vec2 {x: 256f32, y: 128f32});
+                ui.image(sized_texture);
+            }
 
             if self.tracelogger_view { // TODO: Fix tracelogger (instructions are one behind, don't have opcodes, and just need better formatting)
                 if self.emulator.cpu.state == CPUState::NeedInstruction {

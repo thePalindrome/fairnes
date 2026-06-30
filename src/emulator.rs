@@ -16,6 +16,8 @@ pub struct Emulator {
 
     // TODO: Replace with generic/NROM mapper handler
     rom: Vec<u8>,
+    header: Vec<u8>,
+    pub chrdata: Vec<u8>,
 
     mdr: u8,
 
@@ -30,6 +32,8 @@ impl Default for Emulator {
 
             // See above TODO
             rom: Vec::with_capacity(0x8000),
+            header: Vec::with_capacity(0x10),
+            chrdata: vec![0; 0x2000],
 
             mdr: 0,
         }
@@ -47,12 +51,12 @@ impl Emulator {
             self.last_text = "Missing magic number, not a .nes file?".to_string();
             return;
         }
-
-        // TODO: Actually store the header :P
+        self.header = Vec::from(&bytes[0..0x10]);
 
         // TODO: Check for the trainer padding >.>
 
-        self.rom = Vec::from(&bytes[16..]);
+        self.rom = Vec::from(&bytes[0x10..0x8010]);
+        self.chrdata = Vec::from(&bytes[0x8010..]);
         self.reset();
     }
 
@@ -85,7 +89,7 @@ impl Emulator {
         self.cpu_cycle();
     }
 
-    fn cpu_cycle(&mut self) {
+    fn cpu_cycle(&mut self) { // TODO: Some Instructions take the wrong number of cycles!
         if self.cpu.state != Halted {
             match self.cpu.state {
                 CPUState::Oops => {
