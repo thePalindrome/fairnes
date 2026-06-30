@@ -48,16 +48,18 @@ impl UiApp {
 }
 
 impl eframe::App for UiApp {
+    fn logic(&mut self, ctx: &Context, _frame: &mut Frame) {
+        if !self.tracelogger_view {
+            self.emulator.run_frame();
+        } else {
+            self.emulator.master_cycle(); // TODO: Split out to an always-called loop
+        }
+        ctx.request_repaint();
+    }
     /// Called each time the UI needs repainting, which may be many times per second.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
-
-        if !self.tracelogger_view {
-            self.emulator.run_frame();
-        } else {
-            self.emulator.master_cycle();
-        }
 
         egui::Panel::top("top_panel").show_inside(ui, |ui| {
             // The top panel is often a good place for a menu bar:
