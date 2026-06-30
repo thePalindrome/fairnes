@@ -1,3 +1,5 @@
+use std::fs;
+use std::fs::File;
 use eframe::{Frame};
 use egui::{Context, TextureOptions, Vec2};
 use crate::cpu::cpu::CPUState;
@@ -16,6 +18,9 @@ pub struct UiApp {
     memory_inspect_value: String,
 
     #[serde(skip)]
+    rom_filepath: String,
+
+    #[serde(skip)]
     tracelogger_text: String,
 
     tracelogger_view: bool,
@@ -30,6 +35,7 @@ impl Default for UiApp {
             emulator: Emulator::default(),
             memory_inspect_target: String::default(),
             memory_inspect_value: String::default(),
+            rom_filepath: String::default(),
             tracelogger_text: String::default(),
             tracelogger_view: false,
             pattern_table_view: false,
@@ -147,7 +153,19 @@ impl eframe::App for UiApp {
                 if ui.button("Load 7_Graphics.nes").clicked() {
                     let bytes = include_bytes!("../__PatreonRoms/7_Graphics.nes");
                     self.emulator.load_cartridge(bytes.to_vec());
-                    self.load_pattern_table()
+                    self.load_pattern_table();
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Rom to load: ");
+                ui.text_edit_singleline(&mut self.rom_filepath);
+                if ui.button("Load").clicked() {
+                    if fs::exists(&self.rom_filepath).expect("Unable to check if file exists") {
+                        let bytes = fs::read(self.rom_filepath.clone()).unwrap();
+                        self.emulator.load_cartridge(bytes);
+                        self.load_pattern_table();
+                    }
                 }
             });
 
